@@ -1,0 +1,12 @@
+﻿import IO;
+class Program {
+	
+	fun Hello() : void {
+		IO.Print("helo");
+	}
+
+	fun Main() : void {
+		let b: string = "random string";
+		IO.Print("b = "+b);
+	}
+}

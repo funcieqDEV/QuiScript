@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "sZvU3qPSMJY=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\HP\\Downloads\\QuiScript\\QuiScript\\QuiScript.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\HP\\.nuget\\packages\\microsoft.net.sdk.compilers.toolset\\9.0.100\\microsoft.net.sdk.compilers.toolset.9.0.100.nupkg.sha512"
+  ],
+  "logs": []
+}
