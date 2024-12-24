@@ -1,0 +1,46 @@
+### to-do list 
+- [x] classes
+    - [x] static functions
+    - [x] returning values in functions
+    - [ ] access modifiers
+    - [ ] non-static functions
+    - [ ] constructor
+- [x] modules
+    - [x] IO
+        - [x] Print
+        - [ ] Println
+        - [ ] Clear
+        - [x] ReadLine
+        - [x] ReadChar
+    - [ ] Math
+    - [x] Conv
+        - [x] ToString
+        - [ ] ToInt32
+        - [ ] ToInt64
+        - [ ] ToInt16
+        - [ ] ToDouble
+        - [ ] ToSingle
+        - [ ] ToBool
+    - [ ] Sys
+    - [ ] Time
+    - [ ] File
+        - [ ] WriteAllText
+        - [ ] ReadAllText
+        - [ ] WriteAllLines (overwrites the text of the file with lines from the table)
+        - [ ] ReadAllLines (return lines array)
+    - [ ] Array
+    - [ ] HTTP
+    - [ ] String
+    - [ ] Int
+    - [ ] Float
+    - [ ] Bool
+    - [ ] List
+- [ ] for loop
+- [ ] foreach loop
+- [ ] arrays
+- [ ] while loop
+- [ ] until loop
+- [ ] lists
+- [ ] importing other source files
+- [ ] calling methods from a programmer-defined type variable (like let Tom: Person; Tom.GetAge();)
+- [ ] struct
