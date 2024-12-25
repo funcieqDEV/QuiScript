@@ -1,12 +1,12 @@
-﻿import IO;
+import Conv;
+import IO;
 class Program {
 	
-	fun Hello() : void {
-		IO.Print("helo");
+	fun test() : int32{
+		return 5;         
 	}
 
 	fun Main() : void {
-		let b: string = "random string";
-		IO.Print("b = "+b);
+		IO.Print(Conv.ToString(5*Program.test()));
 	}
 }
