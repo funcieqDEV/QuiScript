@@ -1,9 +1,10 @@
-﻿using QuiScript.frontend;
+using QuiScript.frontend;
 using QuiScript.frontend.parser;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 
 namespace QuiScript.backend.codegen
 {
@@ -13,6 +14,9 @@ namespace QuiScript.backend.codegen
         private string Path;
         private List<string> imports = new List<string>();
         private FunctionNode currentFunction;
+
+   
+        private Dictionary<string, ClassInfo> availableClasses = new Dictionary<string, ClassInfo>();
 
         public CodeGen(Root r)
         {
@@ -49,6 +53,7 @@ namespace QuiScript.backend.codegen
 
             TraverseStatements(r.Statements);
 
+        
             try
             {
                 Process process = new Process();
@@ -95,12 +100,17 @@ namespace QuiScript.backend.codegen
                 }
             }
         }
+
         private void CompileImport(ImportNode importNode)
         {
-            if (importNode.Name == "IO")
+            if (importNode.Name == "IO" && !imports.Contains("IO"))
             {
                 imports.Add("IO");
-
+                availableClasses["IO"] = new ClassInfo("IO", new Dictionary<string, MethodInfo>
+                {
+                    { "Print", new MethodInfo("Print", "void", new List<string> { "string" }) },
+                    { "ReadLine", new MethodInfo("ReadLine", "string", new List<string>()) }
+                });
                 string ioClass = @"
 .class public auto ansi abstract sealed beforefieldinit IO
        extends [mscorlib]System.Object
@@ -112,18 +122,31 @@ namespace QuiScript.backend.codegen
     call void [mscorlib]System.Console::WriteLine(string)
     ret
   }
-}";
+  .method public hidebysig static string ReadLine() cil managed
+  {
+    .maxstack 8
+    call string [mscorlib]System.Console::ReadLine()
+    ret
+  }
+}
+";
                 File.AppendAllText(Path, ioClass + "\n");
             }
-            else if (importNode.Name == "Conv")
+            else if (importNode.Name == "Conv" && !imports.Contains("Conv"))
             {
                 imports.Add("Conv");
+
+          
+                availableClasses["Conv"] = new ClassInfo("Conv", new Dictionary<string, MethodInfo>
+                {
+                    { "ToString", new MethodInfo("ToString", "string", new List<string> { "int32" }) }
+                });
 
                 string convClass = @"
 .class public auto ansi abstract sealed beforefieldinit Conv
        extends [mscorlib]System.Object
 {
-  .method public hidebysig static string ToString(int32 value) cil managed
+  .method public hidebysig static string ToString(int32 number) cil managed
   {
     .maxstack 8
     ldarg.0
@@ -135,23 +158,45 @@ namespace QuiScript.backend.codegen
             }
         }
 
-
-
         private void CompileClass(ClassNode stmt)
         {
+       
+            Console.WriteLine($"Registering class: {stmt.Name}"); 
+            availableClasses[stmt.Name] = new ClassInfo(stmt.Name, new Dictionary<string, MethodInfo>());
+
+        
+            if (stmt.Methods != null)
+            {
+                foreach (var method in stmt.Methods)
+                {
+                    if (method is FunctionNode funcNode)
+                    {
+                        // Rejestrujemy każdą metodę w słowniku
+                        Console.WriteLine($"Registering method: {funcNode.Name} in class {stmt.Name}"); // Logowanie rejestracji metody
+                        availableClasses[stmt.Name].Methods[funcNode.Name] = new MethodInfo(funcNode.Name, funcNode.Type,
+                            funcNode.Args?.args.Select(arg => arg.Item1).ToList() ?? new List<string>());
+                    }
+                }
+            }
+
+         
             if (stmt.Name == "Program")
             {
+                Console.WriteLine("Compiling 'Program' class...");
                 File.AppendAllText(Path, ".class public auto ansi beforefieldinit Program\r\n       extends [mscorlib]System.Object\r\n{");
 
                 foreach (var method in stmt.Methods)
                 {
                     if (method is FunctionNode funcNode)
                     {
+                        Console.WriteLine($"Compiling method: {funcNode.Name}"); 
                         CompileMethodSignature(funcNode);
                         currentFunction = funcNode;
 
+                   
                         if (funcNode.Name == "Main")
                         {
+                            Console.WriteLine("Main method found. Marking as entry point.");
                             CompileMethodBody(funcNode, true);
                         }
                         else
@@ -165,15 +210,23 @@ namespace QuiScript.backend.codegen
             }
         }
 
+
+
         private void CompileMethodSignature(FunctionNode funcNode)
         {
-            string methodSignature = $"\n.method public hidebysig {funcNode.Type} {funcNode.Name}(";
+            string methodSignature = $"\n.method public static hidebysig {funcNode.Type} {funcNode.Name}(";
+
+            HashSet<string> declaredArguments = new HashSet<string>();
 
             if (funcNode.Args != null && funcNode.Args.args.Count > 0)
             {
                 foreach (var (argType, argName) in funcNode.Args.args)
                 {
-                    methodSignature += $"{argName} {argType}, ";
+                    if (!declaredArguments.Contains(argName))
+                    {
+                        methodSignature += $"{argName} {argType}, ";
+                        declaredArguments.Add(argName);
+                    }
                 }
                 methodSignature = methodSignature.TrimEnd(',', ' ');
             }
@@ -197,6 +250,7 @@ namespace QuiScript.backend.codegen
                 File.AppendAllText(Path, "\n\r.entrypoint\n");
             }
 
+        
             foreach (var stmt in funcNode.Block.Statements)
             {
                 if (stmt is VariableDeclarationNode dec)
@@ -207,11 +261,20 @@ namespace QuiScript.backend.codegen
 
             CompileVariableDeclaration(vars, ref localIndex);
 
-            foreach (var statement in funcNode.Block.Statements)
+            foreach (var stmt in funcNode.Block.Statements)
             {
-                if (statement is InstanceMethodCall instanceMethodCall)
+                if (stmt is InstanceMethodCall instanceMethodCall)
                 {
-                    CompileInstanceMethodCall(instanceMethodCall);
+                    CompileMethodCall(instanceMethodCall);
+                }
+                else if (stmt is AssigmentNode asign)
+                {
+                    CompileExpression(asign.Expr, asign.Name);
+                }
+                else if(stmt is ReturnNode r)
+                {
+                    CompileExpression(r.Expr);
+                    File.AppendAllText(Path,"ret\r\n");
                 }
             }
 
@@ -219,125 +282,26 @@ namespace QuiScript.backend.codegen
             File.AppendAllText(Path, "}\r\n");
         }
 
-        private void CompileBinaryExpression(BinaryExpressionNode binaryExpression)
-        {
-           
-            CompileExpression(binaryExpression.Left);
-
-            
-            if (binaryExpression.Operator.Value == "+")
-            {
-                
-                if (binaryExpression.Left is StringLiteralNode || binaryExpression.Left is IdentifiterNode id && IsStringVariable(id.Name))
-                {
-                    
-                    if (binaryExpression.Right is StringLiteralNode || binaryExpression.Right is IdentifiterNode id2 && IsStringVariable(id2.Name))
-                    {
-                        
-                        CompileExpression(binaryExpression.Right);
-
-                        
-                        File.AppendAllText(Path, "call string [mscorlib]System.String::Concat(string, string)\r\n");
-                    }
-                    else
-                    {
-                        
-                        CompileExpression(binaryExpression.Right);
-                    }
-                }
-                else
-                {
-                   
-                    CompileExpression(binaryExpression.Right);
-                    File.AppendAllText(Path, "add\r\n");
-                }
-            }
-            else
-            {
-                
-                CompileExpression(binaryExpression.Right);
-                switch (binaryExpression.Operator.Value)
-                {
-                    case "-":
-                        File.AppendAllText(Path, "sub\r\n");
-                        break;
-                    case "*":
-                        File.AppendAllText(Path, "mul\r\n");
-                        break;
-                    case "/":
-                        File.AppendAllText(Path, "div\r\n");
-                        break;
-                   
-                    default:
-                        throw new Exception($"Unsupported operator in binary expression: {binaryExpression.Operator.Value}");
-                }
-            }
-        }
-
-
-
-
-        private bool IsStringExpression(Node expr)
-        {
-            return expr is StringLiteralNode ||
-                   (expr is IdentifiterNode id && currentFunction?.Locals?.Exists(v => v.Name == id.Name && v.Type == "string") == true);
-        }
-
-        private void CompileInstanceMethodCall(InstanceMethodCall instanceMethodCall)
-        {
-            if (instanceMethodCall.Parent == "IO" && imports.Contains("IO"))
-                if (instanceMethodCall.Parent == "IO" && imports.Contains("IO"))
-                {
-                    if (instanceMethodCall.Method == "Print" && instanceMethodCall.args.Count == 1)
-                    {
-                        var arg = instanceMethodCall.args[0];
-
-                        
-                        if (!(arg is StringLiteralNode))
-                        {
-                          
-                            CompileExpression(arg);
-
-                         
-                            if (arg is IntLiteral || arg is IdentifiterNode)
-                            {
-                                File.AppendAllText(Path, "call string [mscorlib]System.Convert::ToString(int32)\r\n");
-                            }
-                        }
-                        else
-                        {
-                            
-                            CompileExpression(arg);
-                        }
-
-                      
-                        File.AppendAllText(Path, "call void IO::Print(string)\r\n");
-                    }
-                }
-
-                else if (instanceMethodCall.Parent == "Conv" && imports.Contains("Conv"))
-            {
-                if (instanceMethodCall.Method == "ToString" && instanceMethodCall.args.Count == 1)
-                {
-                    CompileExpression(instanceMethodCall.args[0]);
-                    File.AppendAllText(Path, "call string [mscorlib]System.Convert::ToString(int32)\\r\\n\"");
-                }
-            }
-        }
-
-
         private void CompileVariableDeclaration(List<VariableDeclarationNode> dec, ref int index)
         {
+            List<string> declaredVariables = new List<string>();
+
             File.AppendAllText(Path, "\n.locals init (\n");
 
             for (int i = 0; i < dec.Count; i++)
             {
                 var v = dec[i];
+
+                if (declaredVariables.Contains(v.Name))
+                {
+                    continue;
+                }
+
                 string separator = (i == dec.Count - 1) ? "" : ",";
                 File.AppendAllText(Path, $"[{index}] {v.Type} {v.Name}{separator}\n");
+                declaredVariables.Add(v.Name);
                 index++;
 
-            
                 if (currentFunction.Locals == null)
                 {
                     currentFunction.Locals = new List<VariableDeclarationNode>();
@@ -345,29 +309,25 @@ namespace QuiScript.backend.codegen
                 currentFunction.Locals.Add(v);
             }
 
-
             File.AppendAllText(Path, ")\n");
 
             foreach (var v in dec)
             {
                 if (v.Expr != null)
                 {
-                    CompileExpression(v.Expr, v.Name); 
+                    CompileExpression(v.Expr, v.Name);
                 }
             }
         }
-
 
         private void CompileExpression(Node expr, string varName = null)
         {
             if (expr is StringLiteralNode stringLiteral)
             {
-            
                 File.AppendAllText(Path, $"ldstr \"{stringLiteral.tok}\"\r\n");
             }
             else if (expr is IntLiteral intLiteral)
             {
-             
                 File.AppendAllText(Path, $"ldc.i4 {intLiteral.tok.Value}\r\n");
             }
             else if (expr is IdentifiterNode identifier)
@@ -379,8 +339,15 @@ namespace QuiScript.backend.codegen
             {
                 CompileBinaryExpression(binaryExpression);
             }
+            else if (expr is InstanceMethodCall instanceMethodCall)
+            {
+                CompileMethodCall(instanceMethodCall);
+            }
+            else
+            {
+                throw new Exception($"Unsupported expression type: {expr.GetType().Name}");
+            }
 
-         
             if (varName != null)
             {
                 int index = GetLocalIndex(varName);
@@ -388,20 +355,97 @@ namespace QuiScript.backend.codegen
             }
         }
 
-
-        private bool IsStringVariable(string varName)
+        private void CompileMethodCall(InstanceMethodCall instanceMethodCall)
         {
-            if (currentFunction == null || currentFunction.Locals == null)
-            {
-                return false;
-            }
+            string className = instanceMethodCall.Parent;
+            string methodName = instanceMethodCall.Method;
 
-       
-            var variable = currentFunction.Locals.FirstOrDefault(v => v.Name == varName);
-            return variable != null && variable.Type == "string";
+            if (availableClasses.ContainsKey(className))
+            {
+                var classInfo = availableClasses[className];
+
+                if (classInfo.Methods.ContainsKey(methodName))
+                {
+                    var methodInfo = classInfo.Methods[methodName];
+
+                    if (methodInfo.Arguments.Count == instanceMethodCall.args.Count)
+                    {
+                        foreach (var arg in instanceMethodCall.args)
+                        {
+                            CompileExpression(arg);
+                        }
+                        File.AppendAllText(Path, $"call {methodInfo.ReturnType} {className}::{methodName}({string.Join(",", methodInfo.Arguments)})\r\n");
+                    }
+                    else
+                    {
+                        throw new Exception($"Argument count does not match for method {methodName} in class {className}");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("avaible methods: ");
+                    foreach(var met in classInfo.Methods)
+                    {
+                        Console.WriteLine(met);
+                    }
+                    throw new Exception($"Method {methodName} not found in class {className}");
+                }
+            }
+            else
+            {
+                throw new Exception($"Class {className} not found");
+            }
         }
 
+        private void CompileBinaryExpression(BinaryExpressionNode binaryExpression)
+        {
+            CompileExpression(binaryExpression.Left);
+            CompileExpression(binaryExpression.Right);
 
+            if (binaryExpression.Operator.Value == "+" && IsStringType(binaryExpression.Left) && IsStringType(binaryExpression.Right))
+            {
+                File.AppendAllText(Path, $"call string [mscorlib]System.String::Concat(string, string)\r\n");
+            }
+            else if (binaryExpression.Operator.Value == "*")
+            {
+                File.AppendAllText(Path, "mul\r\n");
+            }
+            else if (binaryExpression.Operator.Value == "/")
+            {
+                File.AppendAllText(Path, "div\r\n");
+            }
+            else if (binaryExpression.Operator.Value == "-")
+            {
+                File.AppendAllText(Path, "sub\r\n");
+            }
+            else
+            {
+                File.AppendAllText(Path, "add\r\n");
+            }
+        }
+
+        private bool IsStringType(Node node)
+        {
+            if (node is IdentifiterNode identifier)
+            {
+                var variable = currentFunction.Locals?.FirstOrDefault(v => v.Name == identifier.Name);
+                return variable != null && variable.Type == "string";
+            }
+            else if (node is StringLiteralNode)
+            {
+                return true;
+            }
+            else if (node is InstanceMethodCall instanceMethodCall)
+            {
+                if (availableClasses.ContainsKey(instanceMethodCall.Parent))
+                {
+                    var classInfo = availableClasses[instanceMethodCall.Parent];
+                    var methodInfo = classInfo.Methods[instanceMethodCall.Method];
+                    return methodInfo.ReturnType == "string";
+                }
+            }
+            return false;
+        }
 
         private int GetLocalIndex(string name)
         {
@@ -418,6 +462,32 @@ namespace QuiScript.backend.codegen
                 }
             }
             throw new Exception($"Variable {name} not found in current function's local variables.");
+        }
+
+        public class ClassInfo
+        {
+            public string Name { get; set; }
+            public Dictionary<string, MethodInfo> Methods { get; set; }
+
+            public ClassInfo(string name, Dictionary<string, MethodInfo> methods)
+            {
+                Name = name;
+                Methods = methods;
+            }
+        }
+
+        public class MethodInfo
+        {
+            public string Name { get; set; }
+            public string ReturnType { get; set; }
+            public List<string> Arguments { get; set; }
+
+            public MethodInfo(string name, string returnType, List<string> arguments)
+            {
+                Name = name;
+                ReturnType = returnType;
+                Arguments = arguments;
+            }
         }
     }
 }
