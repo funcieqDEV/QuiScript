@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -15,6 +15,7 @@ namespace QuiScript.frontend
         KeywordFun,
         KeywordImport,
         KeywordLet,
+        KeywordReturn,
 
         Identifier,
         IntegerLiteral,
@@ -76,6 +77,7 @@ namespace QuiScript.frontend
             {"import", TokenType.KeywordImport},
             {"fun",TokenType.KeywordFun},
             {"let", TokenType.KeywordLet},
+            {"return",TokenType.KeywordReturn },
         };
 
         public List<Token> Tokenize()
