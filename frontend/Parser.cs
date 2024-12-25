@@ -1,4 +1,4 @@
-﻿using QuiScript.frontend.parser;
+using QuiScript.frontend.parser;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -40,12 +40,31 @@ namespace QuiScript.frontend
                 TokenType.KeywordFun => ParseFunctionNode(),
                 TokenType.KeywordImport => ParseImportNode(),
                 TokenType.Identifier when IsInstanceMethodCall() => ParseInstanceMethodCall(),
+                TokenType.Identifier when IsAssigment() => ParseAssigment(),
                 TokenType.Identifier => ParseFunctionCallNode(),
                 TokenType.KeywordLet => ParseVariableDeclaration(),
+                TokenType.KeywordReturn => ParseReturn(),
                 _ => throw new Exception("Not implemented yet"),
             };
         }
 
+        private ReturnNode ParseReturn()
+        {
+            Consume(TokenType.KeywordReturn, "");
+            var expr = ParseExpression();
+            Consume(TokenType.Semi, "Expected ';'");
+            return new ReturnNode(expr);
+        }
+
+        private AssigmentNode ParseAssigment()
+        {
+            Node expr;
+            var id = Consume(TokenType.Identifier, "Expected variable name.");
+            Consume(TokenType.Assignment, "Expected '='");
+            expr = ParseExpression();
+            Consume(TokenType.Semi, "Expected ';'");
+            return new AssigmentNode(id.Value,expr);
+        }
         private VariableDeclarationNode ParseVariableDeclaration()
         {
             Node Expr;
@@ -74,6 +93,15 @@ namespace QuiScript.frontend
         {
             
             if (_position + 1 < tokens.Count && tokens[_position + 1].Type == TokenType.Dot)
+            {
+                return true;
+            }
+            return false;
+        }
+
+        private bool IsAssigment()
+        {
+            if(_position +1<tokens.Count && tokens[_position+1].Type == TokenType.Assignment)
             {
                 return true;
             }
@@ -143,7 +171,7 @@ namespace QuiScript.frontend
             // Sprawdzamy, czy mamy do czynienia z wywołaniem metody na obiekcie (np. Conv.ToString)
             if (current.Type == TokenType.Identifier && Peek(1).Type == TokenType.Dot)
             {
-                return ParseInstanceMethodCall(); // Obsługuje takie wywołania jak Conv.ToString
+                return ParseInstanceMethodCall(true); // Obsługuje takie wywołania jak Conv.ToString
             }
 
             switch (current.Type)
@@ -166,17 +194,21 @@ namespace QuiScript.frontend
 
 
 
-        public InstanceMethodCall ParseInstanceMethodCall()
+        public InstanceMethodCall ParseInstanceMethodCall(bool inExpr = false)
         {
             var parent = Consume(TokenType.Identifier, "Expected class name.");
             Consume(TokenType.Dot, "Expected '.' after class name.");
             var child = Consume(TokenType.Identifier, "Expected method name.");
             Consume(TokenType.LeftParen, "Expected '(' after method name.");
-            var args = ParseFunctionArgs(); // Parsujemy argumenty metody
+            var args = ParseFunctionArgs(); 
             Consume(TokenType.RightParen, "Expected ')' after arguments.");
-            Consume(TokenType.Semi, "Expected ';' after statement");
+            if (!inExpr)
+            {
+                Consume(TokenType.Semi, "Expected ';' after statement");
+            }
+            
 
-            // Zwracamy węzeł reprezentujący wywołanie metody instancji
+            
             return new InstanceMethodCall(parent.Value, child.Value, args);
         }
 
